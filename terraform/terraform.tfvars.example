@@ -1,0 +1,85 @@
+# AWS Configuration
+aws_region = "us-west-2"
+environment = "production"
+
+# VPC Configuration
+vpc_cidr = "10.0.0.0/16"
+availability_zones = ["us-west-2a", "us-west-2b", "us-west-2c"]
+public_subnets = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+private_subnets = ["10.0.11.0/24", "10.0.12.0/24", "10.0.13.0/24"]
+
+# EKS Configuration
+cluster_name = "skyflow-cluster"
+cluster_version = "1.28"
+
+# Database Configuration
+db_name = "skyflow"
+db_username = "skyflow_admin"
+db_password = "your-secure-db-password"
+db_instance_class = "db.t3.micro"
+
+# Redis Configuration
+redis_node_type = "cache.t3.micro"
+redis_num_cache_nodes = 1
+
+# RabbitMQ Configuration
+mq_instance_type = "mq.t3.micro"
+
+# DocumentDB Configuration
+documentdb_instance_class = "db.t3.medium"
+documentdb_cluster_size = 1
+
+# Domain Configuration
+domain_name = "skyflow.example.com"
+
+# Stripe Configuration
+stripe_secret_key = "sk_test_your_stripe_secret_key"
+stripe_publishable_key = "pk_test_your_stripe_publishable_key"
+stripe_webhook_secret = "whsec_your_webhook_secret"
+
+# JWT Configuration
+jwt_secret = "your-super-secret-jwt-key-change-in-production"
+
+# Email Configuration
+email_user = "your-email@gmail.com"
+email_password = "your-app-password"
+
+# MongoDB Configuration
+mongodb_username = "skyflow_user"
+mongodb_password = "your-secure-mongodb-password"
+
+# Redis Configuration
+redis_password = "your-secure-redis-password"
+
+# RabbitMQ Configuration
+rabbitmq_username = "skyflow_user"
+rabbitmq_password = "your-secure-rabbitmq-password"
+
+# Feature Flags
+enable_monitoring = true
+enable_backup = true
+enable_ssl = true
+enable_waf = true
+enable_cloudfront = true
+enable_auto_scaling = true
+enable_logging = true
+enable_alerts = true
+
+# Auto Scaling Configuration
+min_capacity = 1
+max_capacity = 10
+desired_capacity = 2
+
+# Logging Configuration
+log_retention_days = 30
+
+# Notification Configuration
+notification_email = "admin@skyflow.example.com"
+
+# Additional Tags
+tags = {
+  Project     = "SkyFlow"
+  Environment = "production"
+  ManagedBy   = "Terraform"
+  Owner       = "SkyFlow Team"
+}

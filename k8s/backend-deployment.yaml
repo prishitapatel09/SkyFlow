@@ -1,0 +1,170 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: skyflow-backend
+  namespace: skyflow
+  labels:
+    app: skyflow-backend
+    version: v1
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: skyflow-backend
+  template:
+    metadata:
+      labels:
+        app: skyflow-backend
+        version: v1
+    spec:
+      containers:
+      - name: skyflow-backend
+        image: ${ECR_REGISTRY}/skyflow-backend:latest
+        ports:
+        - containerPort: 3000
+          name: http
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "3000"
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: skyflow-secrets
+              key: db-host
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: skyflow-secrets
+              key: db-user
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: skyflow-secrets
+              key: db-password
+        - name: DB_NAME
+          value: "skyflow"
+        - name: DB_DIALECT
+          value: "postgres"
+        - name: DB_PORT
+          value: "5432"
+        - name: MONGODB_URL
+          valueFrom:
+            secretKeyRef:
+              name: skyflow-secrets
+              key: mongodb-url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: skyflow-secrets
+              key: redis-url
+        - name: RABBITMQ_URL
+          valueFrom:
+            secretKeyRef:
+              name: skyflow-secrets
+              key: rabbitmq-url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: skyflow-secrets
+              key: jwt-secret
+        - name: STRIPE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: skyflow-secrets
+              key: stripe-secret-key
+        - name: STRIPE_PUBLISHABLE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: skyflow-secrets
+              key: stripe-publishable-key
+        - name: STRIPE_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: skyflow-secrets
+              key: stripe-webhook-secret
+        - name: EMAIL_USER
+          valueFrom:
+            secretKeyRef:
+              name: skyflow-secrets
+              key: email-user
+        - name: EMAIL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: skyflow-secrets
+              key: email-password
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: logs
+          mountPath: /app/logs
+      volumes:
+      - name: logs
+        emptyDir: {}
+      imagePullSecrets:
+      - name: ecr-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: skyflow-backend-service
+  namespace: skyflow
+  labels:
+    app: skyflow-backend
+spec:
+  selector:
+    app: skyflow-backend
+  ports:
+  - name: http
+    port: 80
+    targetPort: 3000
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: skyflow-backend-hpa
+  namespace: skyflow
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: skyflow-backend
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
