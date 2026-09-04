@@ -11,10 +11,27 @@ support assistant are backed by Claude.
 · React 19 · TypeScript · Vite · Kubernetes · Terraform · Prometheus/Grafana · Stripe · Anthropic
 Claude
 
+## Live demo
+
+**https://sky-flow-using-go-nsn8.vercel.app/**
+
+> **What you are looking at.** That deployment serves the React front end against a **Go**
+> implementation of SkyFlow, built by [@SomyaPadhy4501](https://github.com/SomyaPadhy4501/SkyFlow-using-GO)
+> — same product, same API shape, different backend language. It is there so you can click through
+> the booking flow without running anything.
+>
+> **This repository is the Java / Spring Boot implementation** described below, and it is not the
+> code behind that URL. To exercise this backend, run it locally with
+> [`./start-dev.sh`](#running-it-locally) — it comes up seeded and needs no API keys.
+>
+> The hosted backend is scaled to zero to keep it free, so the first request takes 2–3 minutes to
+> wake the container. Everything after that is fast.
+
 ---
 
 ## Contents
 
+- [Live demo](#live-demo)
 - [Architecture](#architecture)
 - [Running it locally](#running-it-locally)
 - [The parts worth reading](#the-parts-worth-reading)
