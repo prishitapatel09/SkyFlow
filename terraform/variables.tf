@@ -8,7 +8,7 @@ variable "environment" {
   description = "Environment name"
   type        = string
   default     = "production"
-  
+
   validation {
     condition     = contains(["development", "staging", "production"], var.environment)
     error_message = "Environment must be one of: development, staging, production."
@@ -93,18 +93,6 @@ variable "mq_instance_type" {
   default     = "mq.t3.micro"
 }
 
-variable "documentdb_instance_class" {
-  description = "DocumentDB instance class"
-  type        = string
-  default     = "db.t3.medium"
-}
-
-variable "documentdb_cluster_size" {
-  description = "Number of DocumentDB instances"
-  type        = number
-  default     = 1
-}
-
 variable "domain_name" {
   description = "Domain name for the application"
   type        = string
@@ -128,6 +116,13 @@ variable "stripe_webhook_secret" {
   sensitive   = true
 }
 
+variable "anthropic_api_key" {
+  description = "Anthropic API key used by ai-service for natural language search and support chat"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "jwt_secret" {
   description = "JWT secret key"
   type        = string
@@ -145,18 +140,6 @@ variable "email_password" {
   type        = string
   sensitive   = true
   default     = ""
-}
-
-variable "mongodb_username" {
-  description = "MongoDB username"
-  type        = string
-  default     = "skyflow_user"
-}
-
-variable "mongodb_password" {
-  description = "MongoDB password"
-  type        = string
-  sensitive   = true
 }
 
 variable "redis_password" {

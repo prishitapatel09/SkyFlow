@@ -26,8 +26,6 @@ redis_num_cache_nodes = 1
 mq_instance_type = "mq.t3.micro"
 
 # DocumentDB Configuration
-documentdb_instance_class = "db.t3.medium"
-documentdb_cluster_size = 1
 
 # Domain Configuration
 domain_name = "skyflow.example.com"
@@ -38,6 +36,7 @@ stripe_publishable_key = "pk_test_your_stripe_publishable_key"
 stripe_webhook_secret = "whsec_your_webhook_secret"
 
 # JWT Configuration
+anthropic_api_key = "sk-ant-..."
 jwt_secret = "your-super-secret-jwt-key-change-in-production"
 
 # Email Configuration
@@ -45,8 +44,6 @@ email_user = "your-email@gmail.com"
 email_password = "your-app-password"
 
 # MongoDB Configuration
-mongodb_username = "skyflow_user"
-mongodb_password = "your-secure-mongodb-password"
 
 # Redis Configuration
 redis_password = "your-secure-redis-password"

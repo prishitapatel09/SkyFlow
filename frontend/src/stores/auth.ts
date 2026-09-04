@@ -1,253 +1,93 @@
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { api } from '@/services/api'
-import { toast } from 'vue3-toastify'
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+import { REFRESH_TOKEN_KEY, TOKEN_KEY, api } from '@/lib/api'
+import type { AuthPayload, User } from '@/lib/types'
 
-export interface User {
-  id: string
-  email: string
-  name: string
-  role: 'user' | 'admin'
-  createdAt: string
-  updatedAt: string
+interface AuthState {
+  user: User | null
+  token: string | null
+  loading: boolean
+  isAuthenticated: () => boolean
+  isAdmin: () => boolean
+  login: (email: string, password: string) => Promise<void>
+  register: (name: string, email: string, password: string) => Promise<void>
+  logout: () => void
+  /** Re-reads the account on a page load so a stale cached user is corrected. */
+  restore: () => Promise<void>
+  setUser: (user: User) => void
 }
 
-export interface LoginCredentials {
-  email: string
-  password: string
+/**
+ * Tokens live in localStorage because the axios interceptor - which is not a React component -
+ * has to read them on every request. Only the user profile is persisted through zustand.
+ */
+function storeTokens(payload: AuthPayload) {
+  localStorage.setItem(TOKEN_KEY, payload.token)
+  localStorage.setItem(REFRESH_TOKEN_KEY, payload.refreshToken)
 }
 
-export interface RegisterData {
-  name: string
-  email: string
-  password: string
-  confirmPassword: string
-}
+export const useAuth = create<AuthState>()(
+  persist(
+    (set, get) => ({
+      user: null,
+      token: localStorage.getItem(TOKEN_KEY),
+      loading: false,
 
-export const useAuthStore = defineStore('auth', () => {
-  // State
-  const user = ref<User | null>(null)
-  const token = ref<string | null>(localStorage.getItem('token'))
-  const loading = ref(false)
+      isAuthenticated: () => Boolean(get().token && get().user),
+      isAdmin: () => get().user?.role === 'admin',
 
-  // Getters
-  const isAuthenticated = computed(() => !!token.value && !!user.value)
-  const isAdmin = computed(() => user.value?.role === 'admin')
+      login: async (email, password) => {
+        set({ loading: true })
+        try {
+          const payload = await api.auth.login(email, password)
+          storeTokens(payload)
+          set({ user: payload.user, token: payload.token })
+        } finally {
+          set({ loading: false })
+        }
+      },
 
-  // Actions
-  const login = async (credentials: LoginCredentials) => {
-    try {
-      loading.value = true
-      const response = await api.post('/auth/login', credentials)
-      
-      const { token: authToken, user: userData } = response.data.data
-      
-      // Store token
-      token.value = authToken
-      localStorage.setItem('token', authToken)
-      
-      // Store user data
-      user.value = userData
-      
-      // Set auth header for future requests
-      api.defaults.headers.common['Authorization'] = `Bearer ${authToken}`
-      
-      toast.success('Login successful!')
-      return { success: true }
-    } catch (error: any) {
-      const message = error.response?.data?.message || 'Login failed'
-      toast.error(message)
-      return { success: false, error: message }
-    } finally {
-      loading.value = false
-    }
-  }
+      register: async (name, email, password) => {
+        set({ loading: true })
+        try {
+          const payload = await api.auth.register(name, email, password)
+          storeTokens(payload)
+          set({ user: payload.user, token: payload.token })
+        } finally {
+          set({ loading: false })
+        }
+      },
 
-  const register = async (data: RegisterData) => {
-    try {
-      loading.value = true
-      const response = await api.post('/auth/register', {
-        name: data.name,
-        email: data.email,
-        password: data.password
-      })
-      
-      const { token: authToken, user: userData } = response.data.data
-      
-      // Store token
-      token.value = authToken
-      localStorage.setItem('token', authToken)
-      
-      // Store user data
-      user.value = userData
-      
-      // Set auth header for future requests
-      api.defaults.headers.common['Authorization'] = `Bearer ${authToken}`
-      
-      toast.success('Registration successful!')
-      return { success: true }
-    } catch (error: any) {
-      const message = error.response?.data?.message || 'Registration failed'
-      toast.error(message)
-      return { success: false, error: message }
-    } finally {
-      loading.value = false
-    }
-  }
+      logout: () => {
+        void api.auth.logout()
+        localStorage.removeItem(TOKEN_KEY)
+        localStorage.removeItem(REFRESH_TOKEN_KEY)
+        set({ user: null, token: null })
+      },
 
-  const logout = () => {
-    // Clear token
-    token.value = null
-    localStorage.removeItem('token')
-    
-    // Clear user data
-    user.value = null
-    
-    // Remove auth header
-    delete api.defaults.headers.common['Authorization']
-    
-    toast.success('Logged out successfully')
-  }
+      restore: async () => {
+        const token = localStorage.getItem(TOKEN_KEY)
+        if (!token) {
+          set({ user: null, token: null })
+          return
+        }
+        set({ loading: true, token })
+        try {
+          set({ user: await api.auth.me() })
+        } catch {
+          localStorage.removeItem(TOKEN_KEY)
+          localStorage.removeItem(REFRESH_TOKEN_KEY)
+          set({ user: null, token: null })
+        } finally {
+          set({ loading: false })
+        }
+      },
 
-  const refreshToken = async () => {
-    try {
-      const response = await api.post('/auth/refresh')
-      const { token: newToken } = response.data.data
-      
-      token.value = newToken
-      localStorage.setItem('token', newToken)
-      api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
-      
-      return true
-    } catch (error) {
-      logout()
-      return false
-    }
-  }
-
-  const checkAuth = async () => {
-    if (!token.value) return false
-    
-    try {
-      // Set auth header
-      api.defaults.headers.common['Authorization'] = `Bearer ${token.value}`
-      
-      // Verify token by fetching user data
-      const response = await api.get('/auth/me')
-      user.value = response.data.data
-      
-      return true
-    } catch (error) {
-      // Token is invalid, try to refresh
-      const refreshed = await refreshToken()
-      if (!refreshed) {
-        logout()
-        return false
-      }
-      return true
-    }
-  }
-
-  const updateProfile = async (profileData: Partial<User>) => {
-    try {
-      loading.value = true
-      const response = await api.put('/auth/profile', profileData)
-      user.value = response.data.data
-      
-      toast.success('Profile updated successfully!')
-      return { success: true }
-    } catch (error: any) {
-      const message = error.response?.data?.message || 'Profile update failed'
-      toast.error(message)
-      return { success: false, error: message }
-    } finally {
-      loading.value = false
-    }
-  }
-
-  const changePassword = async (passwordData: {
-    currentPassword: string
-    newPassword: string
-    confirmPassword: string
-  }) => {
-    try {
-      loading.value = true
-      await api.put('/auth/password', passwordData)
-      
-      toast.success('Password changed successfully!')
-      return { success: true }
-    } catch (error: any) {
-      const message = error.response?.data?.message || 'Password change failed'
-      toast.error(message)
-      return { success: false, error: message }
-    } finally {
-      loading.value = false
-    }
-  }
-
-  const forgotPassword = async (email: string) => {
-    try {
-      loading.value = true
-      await api.post('/auth/forgot-password', { email })
-      
-      toast.success('Password reset email sent!')
-      return { success: true }
-    } catch (error: any) {
-      const message = error.response?.data?.message || 'Failed to send reset email'
-      toast.error(message)
-      return { success: false, error: message }
-    } finally {
-      loading.value = false
-    }
-  }
-
-  const resetPassword = async (resetData: {
-    token: string
-    password: string
-    confirmPassword: string
-  }) => {
-    try {
-      loading.value = true
-      await api.post('/auth/reset-password', resetData)
-      
-      toast.success('Password reset successfully!')
-      return { success: true }
-    } catch (error: any) {
-      const message = error.response?.data?.message || 'Password reset failed'
-      toast.error(message)
-      return { success: false, error: message }
-    } finally {
-      loading.value = false
-    }
-  }
-
-  // Initialize auth state
-  const init = async () => {
-    if (token.value) {
-      await checkAuth()
-    }
-  }
-
-  return {
-    // State
-    user,
-    token,
-    loading,
-    
-    // Getters
-    isAuthenticated,
-    isAdmin,
-    
-    // Actions
-    login,
-    register,
-    logout,
-    refreshToken,
-    checkAuth,
-    updateProfile,
-    changePassword,
-    forgotPassword,
-    resetPassword,
-    init
-  }
-})
+      setUser: (user) => set({ user }),
+    }),
+    {
+      name: 'skyflow.auth',
+      partialize: (state) => ({ user: state.user }),
+    },
+  ),
+)

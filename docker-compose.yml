@@ -1,203 +1,248 @@
-version: '3.8'
+# Full stack for local development.
+#
+#   docker compose up --build
+#
+# Frontend  http://localhost:3001   (nginx, proxies /api to the gateway)
+# Gateway   http://localhost:8080
+# RabbitMQ  http://localhost:15672  (guest / guest)
+# Grafana   http://localhost:3000   (admin / admin)
+#
+# The booking service runs as a single-replica cluster here. To watch the leader election and
+# task failover, add the three-replica override:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build
+
+x-java-env: &java-env
+  DB_URL: jdbc:postgresql://postgres:5432/skyflow
+  DB_USER: postgres
+  DB_PASSWORD: password
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USER: guest
+  RABBITMQ_PASSWORD: guest
+  JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-me-32}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+x-service-urls: &service-urls
+  USER_SERVICE_URL: http://user-service:8086
+  FLIGHT_SERVICE_URL: http://flight-service:8081
+  BOOKING_SERVICE_URL: http://booking-service:8082
+  PAYMENT_SERVICE_URL: http://payment-service:8083
+  NOTIFICATION_SERVICE_URL: http://notification-service:8084
+  AI_SERVICE_URL: http://ai-service:8085
+
+x-healthcheck: &java-healthcheck
+  test: ["CMD-SHELL", "curl -fsS http://localhost:$${PORT}/actuator/health/readiness || exit 1"]
+  interval: 15s
+  timeout: 5s
+  retries: 10
+  start_period: 45s
+
+x-depends-on-infra: &depends-on-infra
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  rabbitmq:
+    condition: service_healthy
 
 services:
-  app:
-    build: .
-    ports:
-      - "3000:3000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      mongodb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    environment:
-      - NODE_ENV=development
-      - PORT=3000
-      - DB_HOST=postgres
-      - DB_USER=postgres
-      - DB_PASSWORD=password
-      - DB_NAME=skyflow_dev
-      - DB_DIALECT=postgres
-      - DB_PORT=5432
-      - MONGODB_URL=mongodb://mongodb:27017/skyflow
-      - REDIS_URL=redis://redis:6379
-      - RABBITMQ_URL=amqp://rabbitmq
-      - EMAIL_USER=${EMAIL_USER:-}
-      - EMAIL_PASSWORD=${EMAIL_PASSWORD:-}
-      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
-      - LOG_LEVEL=info
-      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY:-sk_test_51H1234567890abcdefghijklmnopqrstuvwxyz}
-      - STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY:-pk_test_51H1234567890abcdefghijklmnopqrstuvwxyz}
-      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET:-whsec_test_1234567890abcdefghijklmnopqrstuvwxyz}
-      - STRIPE_CURRENCY=usd
-    volumes:
-      - .:/usr/src/app
-      - /usr/src/app/node_modules
-      - ./logs:/usr/src/app/logs
-    healthcheck:
-      test: ["CMD", "node", "healthcheck.js"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
+  # ------------------------------------------------------------------ infrastructure
 
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: skyflow
     ports:
       - "5432:5432"
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=skyflow_dev
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./src/migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U postgres -d skyflow"]
+      interval: 5s
       timeout: 5s
-      retries: 10
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 1G
-
-  mongodb:
-    image: mongo:6.0
-    ports:
-      - "27017:27017"
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=password
-      - MONGO_INITDB_DATABASE=skyflow
-    volumes:
-      - mongodb_data:/data/db
-      - ./src/scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    deploy:
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 1G
+      retries: 12
 
   redis:
     image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
-    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    deploy:
-      resources:
-        limits:
-          cpus: '0.2'
-          memory: 256M
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   rabbitmq:
-    image: rabbitmq:3-management-alpine
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
     ports:
       - "5672:5672"
       - "15672:15672"
-    environment:
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
-      - RABBITMQ_DEFAULT_VHOST=/
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmqctl", "status"]
-      interval: 30s
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
       timeout: 10s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: '0.3'
-          memory: 512M
+      retries: 10
 
-  nginx:
-    image: nginx:alpine
+  # ------------------------------------------------------------------ services
+
+  api-gateway:
+    build:
+      context: .
+      args:
+        MODULE: api-gateway
+    environment:
+      <<: [*java-env, *service-urls]
+      PORT: "8080"
+      CORS_ORIGINS: http://localhost:3001,http://localhost:5173
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
+      - "8080:8080"
     depends_on:
-      app:
+      redis:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          cpus: '0.2'
-          memory: 128M
+    healthcheck: *java-healthcheck
 
-  # Optional: Add monitoring stack
+  user-service:
+    build:
+      context: .
+      args:
+        MODULE: user-service
+    environment:
+      <<: *java-env
+      PORT: "8086"
+    depends_on: *depends-on-infra
+    healthcheck: *java-healthcheck
+
+  flight-service:
+    build:
+      context: .
+      args:
+        MODULE: flight-service
+    environment:
+      <<: *java-env
+      PORT: "8081"
+    depends_on: *depends-on-infra
+    healthcheck: *java-healthcheck
+
+  booking-service:
+    build:
+      context: .
+      args:
+        MODULE: booking-service
+    environment:
+      <<: [*java-env, *service-urls]
+      PORT: "8082"
+      # Single-replica cluster: quorum is 1, so this node elects itself immediately.
+      CLUSTER_ENABLED: "true"
+      CLUSTER_ADVERTISED_HOST: booking-service
+      CLUSTER_GRPC_PORT: "9090"
+      CLUSTER_PEERS: ""
+    depends_on: *depends-on-infra
+    healthcheck: *java-healthcheck
+
+  payment-service:
+    build:
+      context: .
+      args:
+        MODULE: payment-service
+    environment:
+      <<: *java-env
+      PORT: "8083"
+      # Without a key the service still starts; payment calls fail with Stripe's own error.
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_CURRENCY: ${STRIPE_CURRENCY:-usd}
+    depends_on: *depends-on-infra
+    healthcheck: *java-healthcheck
+
+  notification-service:
+    build:
+      context: .
+      args:
+        MODULE: notification-service
+    environment:
+      <<: *java-env
+      PORT: "8084"
+      # Off by default locally: emails are rendered and recorded, never sent.
+      EMAIL_ENABLED: ${EMAIL_ENABLED:-false}
+      EMAIL_FROM: ${EMAIL_FROM:-noreply@skyflow.local}
+      EMAIL_USER: ${EMAIL_USER:-}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
+      MAIL_HOST: ${MAIL_HOST:-smtp.gmail.com}
+      MAIL_PORT: ${MAIL_PORT:-587}
+    depends_on: *depends-on-infra
+    healthcheck: *java-healthcheck
+
+  ai-service:
+    build:
+      context: .
+      args:
+        MODULE: ai-service
+    environment:
+      <<: [*java-env, *service-urls]
+      PORT: "8085"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-opus-5}
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck: *java-healthcheck
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      GATEWAY_HOST: api-gateway:8080
+    ports:
+      - "3001:80"
+    depends_on:
+      api-gateway:
+        condition: service_started
+
+  # ------------------------------------------------------------------ monitoring
+
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.55.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=72h
     ports:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--storage.tsdb.retention.time=200h'
-      - '--web.enable-lifecycle'
-    deploy:
-      resources:
-        limits:
-          cpus: '0.3'
-          memory: 512M
 
   grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3001:3000"
+    image: grafana/grafana:11.3.1
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
     depends_on:
       - prometheus
-    deploy:
-      resources:
-        limits:
-          cpus: '0.3'
-          memory: 512M
 
 volumes:
   postgres_data:
-  mongodb_data:
   redis_data:
   rabbitmq_data:
   prometheus_data:

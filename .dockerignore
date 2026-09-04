@@ -1,0 +1,13 @@
+# Keep build contexts small: everything below is either rebuilt in the image or irrelevant to it.
+**/target
+**/node_modules
+**/dist
+frontend
+.git
+.github
+k8s
+terraform
+monitoring
+logs
+*.log
+.DS_Store

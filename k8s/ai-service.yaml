@@ -1,0 +1,153 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-service
+  namespace: skyflow
+  labels:
+    app: ai-service
+    app.kubernetes.io/part-of: skyflow
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: ai-service
+  template:
+    metadata:
+      labels:
+        app: ai-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8085"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      # Spring Boot needs time to drain in-flight requests; the app is configured for graceful
+      # shutdown, so give it room before SIGKILL.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: ai-service
+          image: ${ECR_REGISTRY}/skyflow-ai-service:${IMAGE_TAG}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8085
+          env:
+            - name: PORT
+              value: "8085"
+            - name: SPRING_PROFILES_ACTIVE
+              value: "kubernetes"
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: LOG_LEVEL }
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: redis-host }
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: redis-password }
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: anthropic-api-key }
+            - name: CLAUDE_MODEL
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: CLAUDE_MODEL }
+            - name: CLAUDE_CHAT_EFFORT
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: CLAUDE_CHAT_EFFORT }
+            - name: CLAUDE_EXTRACTION_EFFORT
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: CLAUDE_EXTRACTION_EFFORT }
+            - name: FLIGHT_SERVICE_URL
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: FLIGHT_SERVICE_URL }
+            - name: BOOKING_SERVICE_URL
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: BOOKING_SERVICE_URL }
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "640Mi"
+            limits:
+              memory: "1Gi"
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      imagePullSecrets:
+        - name: ecr-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-service
+  namespace: skyflow
+  labels:
+    app: ai-service
+spec:
+  type: ClusterIP
+  selector:
+    app: ai-service
+  ports:
+    - name: http
+      port: 8085
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ai-service
+  namespace: skyflow
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ai-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ai-service
+  namespace: skyflow
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ai-service

@@ -1,0 +1,159 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: skyflow
+  labels:
+    app: payment-service
+    app.kubernetes.io/part-of: skyflow
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8083"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      # Spring Boot needs time to drain in-flight requests; the app is configured for graceful
+      # shutdown, so give it room before SIGKILL.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: payment-service
+          image: ${ECR_REGISTRY}/skyflow-payment-service:${IMAGE_TAG}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8083
+          env:
+            - name: PORT
+              value: "8083"
+            - name: SPRING_PROFILES_ACTIVE
+              value: "kubernetes"
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: LOG_LEVEL }
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: db-url }
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: db-user }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: db-password }
+            - name: RABBITMQ_HOST
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: rabbitmq-host }
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: rabbitmq-user }
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: rabbitmq-password }
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: stripe-secret-key }
+            - name: STRIPE_PUBLISHABLE_KEY
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: stripe-publishable-key }
+            - name: STRIPE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: stripe-webhook-secret }
+            - name: STRIPE_CURRENCY
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: STRIPE_CURRENCY }
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "640Mi"
+            limits:
+              memory: "1Gi"
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      imagePullSecrets:
+        - name: ecr-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  namespace: skyflow
+  labels:
+    app: payment-service
+spec:
+  type: ClusterIP
+  selector:
+    app: payment-service
+  ports:
+    - name: http
+      port: 8083
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: payment-service
+  namespace: skyflow
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: payment-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment-service
+  namespace: skyflow
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: payment-service

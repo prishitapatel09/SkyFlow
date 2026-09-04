@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package skyflow.cluster.v1;
+
+option java_multiple_files = true;
+option java_package = "com.skyflow.cluster.grpc";
+option java_outer_classname = "ClusterProto";
+
+// Coordination plane spoken between replicas of the same service. Every replica serves this
+// service and calls it on its peers: the elected leader acts as the master that hands work out,
+// the remaining replicas act as workers.
+service ClusterCoordination {
+
+  // Raft-style vote request, sent by a candidate to every peer when its election timer fires.
+  rpc RequestVote(VoteRequest) returns (VoteResponse);
+
+  // Leader -> follower heartbeat. It carries the leader's term (so a stale leader learns it has
+  // been replaced) and the response carries the worker's current load, which makes the same call
+  // the failure detector and the load report.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // Master -> worker task assignment.
+  rpc AssignTask(TaskAssignment) returns (TaskAck);
+
+  // Worker -> master completion report.
+  rpc ReportTaskResult(TaskResult) returns (TaskAck);
+}
+
+message VoteRequest {
+  uint64 term = 1;
+  string candidate_id = 2;
+  // Highest task sequence the candidate has observed. Used as the tie-breaker, standing in for
+  // Raft's log index: a candidate that has seen less work than the voter is not granted a vote.
+  uint64 last_task_index = 3;
+}
+
+message VoteResponse {
+  uint64 term = 1;
+  bool vote_granted = 2;
+  string voter_id = 3;
+}
+
+message HeartbeatRequest {
+  uint64 term = 1;
+  string leader_id = 2;
+  int64 sent_at_epoch_millis = 3;
+  uint64 last_task_index = 4;
+}
+
+message HeartbeatResponse {
+  uint64 term = 1;
+  bool accepted = 2;
+  WorkerStatus status = 3;
+}
+
+message WorkerStatus {
+  string node_id = 1;
+  uint32 in_flight_tasks = 2;
+  uint32 capacity = 3;
+  bool draining = 4;
+}
+
+message TaskAssignment {
+  uint64 term = 1;
+  string leader_id = 2;
+  string task_id = 3;
+  string type = 4;
+  string payload_json = 5;
+  uint32 attempt = 6;
+  int64 deadline_epoch_millis = 7;
+}
+
+message TaskAck {
+  bool accepted = 1;
+  string node_id = 2;
+  string reason = 3;
+}
+
+message TaskResult {
+  string task_id = 1;
+  string worker_id = 2;
+  bool success = 3;
+  string message = 4;
+  int64 duration_millis = 5;
+}

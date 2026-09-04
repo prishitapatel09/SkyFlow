@@ -1,0 +1,165 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: skyflow
+  labels:
+    app: notification-service
+    app.kubernetes.io/part-of: skyflow
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8084"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      # Spring Boot needs time to drain in-flight requests; the app is configured for graceful
+      # shutdown, so give it room before SIGKILL.
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: notification-service
+          image: ${ECR_REGISTRY}/skyflow-notification-service:${IMAGE_TAG}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8084
+          env:
+            - name: PORT
+              value: "8084"
+            - name: SPRING_PROFILES_ACTIVE
+              value: "kubernetes"
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: LOG_LEVEL }
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: db-url }
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: db-user }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: db-password }
+            - name: RABBITMQ_HOST
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: rabbitmq-host }
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: rabbitmq-user }
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: rabbitmq-password }
+            - name: EMAIL_ENABLED
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: EMAIL_ENABLED }
+            - name: EMAIL_FROM
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: EMAIL_FROM }
+            - name: MAIL_HOST
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: MAIL_HOST }
+            - name: MAIL_PORT
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: MAIL_PORT }
+            - name: EMAIL_USER
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: email-user }
+            - name: EMAIL_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: email-password }
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              memory: "768Mi"
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      imagePullSecrets:
+        - name: ecr-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: skyflow
+  labels:
+    app: notification-service
+spec:
+  type: ClusterIP
+  selector:
+    app: notification-service
+  ports:
+    - name: http
+      port: 8084
+      targetPort: http
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: notification-service
+  namespace: skyflow
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: notification-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notification-service
+  namespace: skyflow
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: notification-service

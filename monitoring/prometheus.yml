@@ -1,68 +1,61 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  external_labels:
+    platform: skyflow
 
 rule_files:
-  # - "first_rules.yml"
-  # - "second_rules.yml"
+  - /etc/prometheus/rules/*.yml
 
 scrape_configs:
-  # Prometheus itself
-  - job_name: 'prometheus'
+  - job_name: prometheus
     static_configs:
       - targets: ['localhost:9090']
 
-  # SkyFlow Application
-  - job_name: 'skyflow-app'
-    static_configs:
-      - targets: ['app:3000']
-    metrics_path: '/metrics'
+  # Every Spring Boot service exposes Micrometer metrics on the same path.
+  - job_name: skyflow-services
+    metrics_path: /actuator/prometheus
     scrape_interval: 10s
     scrape_timeout: 5s
-
-  # Node Exporter (if running)
-  - job_name: 'node-exporter'
     static_configs:
-      - targets: ['node-exporter:9100']
+      - targets: ['api-gateway:8080']
+        labels: { service: api-gateway }
+      - targets: ['user-service:8086']
+        labels: { service: user-service }
+      - targets: ['flight-service:8081']
+        labels: { service: flight-service }
+      - targets: ['booking-service:8082']
+        labels: { service: booking-service }
+      - targets: ['payment-service:8083']
+        labels: { service: payment-service }
+      - targets: ['notification-service:8084']
+        labels: { service: notification-service }
+      - targets: ['ai-service:8085']
+        labels: { service: ai-service }
 
-  # Redis Exporter (if running)
-  - job_name: 'redis-exporter'
-    static_configs:
-      - targets: ['redis-exporter:9121']
-
-  # PostgreSQL Exporter (if running)
-  - job_name: 'postgres-exporter'
-    static_configs:
-      - targets: ['postgres-exporter:9187']
-
-  # RabbitMQ Exporter (if running)
-  - job_name: 'rabbitmq-exporter'
-    static_configs:
-      - targets: ['rabbitmq-exporter:9419']
-
-  # MongoDB Exporter (if running)
-  - job_name: 'mongodb-exporter'
-    static_configs:
-      - targets: ['mongodb-exporter:9216']
-
-  # Nginx Exporter (if running)
-  - job_name: 'nginx-exporter'
-    static_configs:
-      - targets: ['nginx-exporter:9113']
-
-  # Blackbox Exporter for HTTP health checks
-  - job_name: 'blackbox'
-    metrics_path: /probe
-    params:
-      module: [http_2xx]
-    static_configs:
-      - targets:
-        - http://app:3000/health
-        - http://app:3000/metrics
+  # In Kubernetes the static list above is replaced by pod discovery: every service's pod template
+  # carries the prometheus.io/scrape annotations this job reads.
+  - job_name: skyflow-kubernetes-pods
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [skyflow]
     relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: blackbox-exporter:9115
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: 'true'
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: replace
+        target_label: service
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: pod

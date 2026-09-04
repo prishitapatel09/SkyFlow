@@ -4,7 +4,7 @@ metadata:
   name: skyflow
   labels:
     name: skyflow
-    environment: production
+    app.kubernetes.io/part-of: skyflow
 ---
 apiVersion: v1
 kind: ResourceQuota
@@ -13,13 +13,12 @@ metadata:
   namespace: skyflow
 spec:
   hard:
-    requests.cpu: "4"
-    requests.memory: 8Gi
-    limits.cpu: "8"
-    limits.memory: 16Gi
-    pods: "20"
-    services: "10"
-    persistentvolumeclaims: "5"
+    requests.cpu: "6"
+    requests.memory: 12Gi
+    limits.cpu: "12"
+    limits.memory: 24Gi
+    pods: "40"
+    services: "15"
 ---
 apiVersion: v1
 kind: LimitRange
@@ -28,17 +27,17 @@ metadata:
   namespace: skyflow
 spec:
   limits:
-  - default:
-      cpu: 500m
-      memory: 512Mi
-    defaultRequest:
-      cpu: 250m
-      memory: 256Mi
-    type: Container
-  - max:
-      cpu: 2
-      memory: 2Gi
-    min:
-      cpu: 100m
-      memory: 128Mi
-    type: Container
+    # A JVM needs more headroom than the Node processes this replaced, so the floor is higher.
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 768Mi
+      defaultRequest:
+        cpu: 200m
+        memory: 512Mi
+      max:
+        cpu: "2"
+        memory: 2Gi
+      min:
+        cpu: 50m
+        memory: 128Mi

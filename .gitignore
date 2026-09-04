@@ -1,0 +1,46 @@
+# Java / Maven
+target/
+*.class
+
+# The Maven wrapper uses the script-only distribution, so there is no wrapper jar to commit;
+# mvnw downloads Maven itself on first use. Generated protobuf sources live under target/.
+.mvn/wrapper/maven-wrapper.jar
+
+# Node / Vite
+node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+npm-debug.log*
+.vite/
+
+# Local configuration and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+!terraform/**/*.key
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform/terraform.tfvars.example
+.terraform.lock.hcl
+crash.log
+
+# Rendered Kubernetes manifests contain secrets; deploy.sh writes them to a temp dir, but catch
+# any that end up here by hand.
+k8s/rendered/
+
+# IDE and OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log

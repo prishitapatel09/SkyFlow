@@ -1,0 +1,91 @@
+server:
+  port: ${PORT:8084}
+  shutdown: graceful
+
+spring:
+  application:
+    name: notification-service
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/skyflow}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:password}
+
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        jdbc.time_zone: UTC
+        # Flyway owns the notification schema; Hibernate has to resolve entities against the same one
+        # rather than the connection's default (public).
+        default_schema: notification
+
+  flyway:
+    enabled: true
+    schemas: notification
+    default-schema: notification
+    create-schemas: true
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        concurrency: 2
+        max-concurrency: 10
+        # After the retries below are exhausted the message is dead-lettered rather than requeued
+        # forever, which is what keeps one bad address from blocking the queue.
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 4
+          initial-interval: 3s
+          multiplier: 2
+          max-interval: 30s
+
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${EMAIL_USER:}
+    password: ${EMAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
+  thymeleaf:
+    cache: true
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+skyflow:
+  email:
+    from: ${EMAIL_FROM:noreply@skyflow.com}
+    # Set to false to render and record emails without contacting an SMTP server.
+    enabled: ${EMAIL_ENABLED:true}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    com.skyflow: ${LOG_LEVEL:INFO}

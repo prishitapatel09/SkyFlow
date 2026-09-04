@@ -1,43 +1,143 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# Local development helper.
+#
+#   ./start-dev.sh              start the whole stack in Docker
+#   ./start-dev.sh cluster      same, but with three booking-service replicas
+#   ./start-dev.sh infra        only Postgres, Redis and RabbitMQ (run services from your IDE)
+#   ./start-dev.sh build        build the Java modules and the frontend
+#   ./start-dev.sh test         run every test suite
+#   ./start-dev.sh logs [svc]   tail logs
+#   ./start-dev.sh stop         stop everything
+#   ./start-dev.sh reset        stop and delete the volumes
 
-echo "Starting SkyFlow development environment..."
+set -euo pipefail
 
-# Check if .env file exists
-if [ ! -f .env ]; then
-    echo "Creating .env file from template..."
-    cat > .env << EOF
-# Server Configuration
-PORT=3000
-NODE_ENV=development
+readonly GREEN='\033[0;32m' BLUE='\033[0;34m' YELLOW='\033[1;33m' NC='\033[0m'
+info()    { echo -e "${BLUE}[info]${NC}  $*"; }
+success() { echo -e "${GREEN}[ ok ]${NC}  $*"; }
+warn()    { echo -e "${YELLOW}[warn]${NC}  $*"; }
 
-# Database Configuration
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=password
-DB_NAME=flight_search
+ensure_env_file() {
+  if [[ -f .env ]]; then
+    return
+  fi
+  info "Creating .env"
+  cat > .env <<'EOF'
+# Local development settings. Everything here has a working default except the API keys.
 
-# Redis Configuration
-REDIS_URL=redis://localhost:6379
+JWT_SECRET=local-development-secret-change-me-32
+LOG_LEVEL=INFO
 
-# RabbitMQ Configuration
-RABBITMQ_URL=amqp://localhost
+# Natural language search and the support assistant need this. Without it those two endpoints
+# return 502 and the rest of the platform works normally.
+ANTHROPIC_API_KEY=
+CLAUDE_MODEL=claude-opus-5
 
-# Email Configuration (for Gmail)
-EMAIL_USER=your-email@gmail.com
-EMAIL_PASSWORD=your-app-password
+# Stripe test keys. Without them, creating a booking fails at the payment-intent step.
+STRIPE_SECRET_KEY=
+STRIPE_PUBLISHABLE_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_CURRENCY=usd
 
-# Database Sync (set to true to auto-sync database schema)
-SYNC_DB=false
+# Email is rendered and recorded but not sent unless this is true and SMTP is configured.
+EMAIL_ENABLED=false
+EMAIL_FROM=noreply@skyflow.local
+EMAIL_USER=
+EMAIL_PASSWORD=
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
 EOF
-    echo ".env file created. Please update with your actual credentials."
-fi
+  warn "Edit .env to add ANTHROPIC_API_KEY and Stripe test keys if you want those features"
+}
 
-# Install dependencies if node_modules doesn't exist
-if [ ! -d "node_modules" ]; then
-    echo "Installing dependencies..."
-    npm install
-fi
+print_urls() {
+  cat <<'EOF'
 
-# Start the application
-echo "Starting the application..."
-npm start
+  Frontend      http://localhost:3001
+  API gateway   http://localhost:8080
+  Cluster state http://localhost:8082/api/v1/cluster/status
+  Swagger UI    http://localhost:8081/swagger-ui.html   (flight-service)
+  RabbitMQ      http://localhost:15672                  (guest / guest)
+  Prometheus    http://localhost:9090
+  Grafana       http://localhost:3000                   (admin / admin)
+
+EOF
+}
+
+case "${1:-up}" in
+  up)
+    ensure_env_file
+    info "Starting the full stack (first build takes a few minutes)"
+    docker compose up --build -d
+    success "Stack is up"
+    print_urls
+    ;;
+
+  cluster)
+    ensure_env_file
+    info "Starting with three booking-service replicas"
+    docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build -d
+    success "Stack is up"
+    cat <<'EOF'
+
+  Replica endpoints: localhost:8082, localhost:8092, localhost:8093
+
+  Which one is master?
+    curl -s localhost:8082/api/v1/cluster/status | jq '{nodeId,role,term,leaderId}'
+
+  Kill it and watch a new term begin:
+    docker compose stop booking-service
+    curl -s localhost:8092/api/v1/cluster/status | jq '{nodeId,role,term,leaderId}'
+
+EOF
+    ;;
+
+  infra)
+    ensure_env_file
+    info "Starting Postgres, Redis and RabbitMQ only"
+    docker compose up -d postgres redis rabbitmq
+    success "Infrastructure is up; run the services from your IDE against localhost"
+    ;;
+
+  build)
+    info "Building Java modules"
+    ./mvnw -B clean install -DskipTests
+    info "Building the frontend"
+    (cd frontend && npm ci && npm run build)
+    success "Build complete"
+    ;;
+
+  test)
+    info "Running Java tests"
+    ./mvnw -B test
+    info "Running frontend tests"
+    (cd frontend && npm ci --silent && npm run type-check && npm test)
+    success "All tests passed"
+    ;;
+
+  logs)
+    shift || true
+    docker compose logs -f --tail=100 "$@"
+    ;;
+
+  stop)
+    docker compose -f docker-compose.yml -f docker-compose.cluster.yml down
+    success "Stopped"
+    ;;
+
+  reset)
+    warn "This deletes the Postgres, Redis and RabbitMQ volumes"
+    read -r -p "Continue? [y/N] " reply
+    if [[ "$reply" == "y" || "$reply" == "Y" ]]; then
+      docker compose -f docker-compose.yml -f docker-compose.cluster.yml down -v
+      success "Reset complete"
+    else
+      info "Cancelled"
+    fi
+    ;;
+
+  *)
+    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+esac

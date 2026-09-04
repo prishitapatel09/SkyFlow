@@ -1,0 +1,114 @@
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: api-gateway
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+  cloud:
+    gateway:
+      # The bare spring.cloud.gateway.* namespace is deprecated in Gateway 4.3; routes and
+      # filters live under server.webflux now.
+      server:
+        webflux:
+          # Claude calls are slow, so the proxy must outlast the default response timeout.
+          httpclient:
+            connect-timeout: 5000
+            response-timeout: 180s
+
+          default-filters:
+            - name: RequestRateLimiter
+              args:
+                key-resolver: "#{@userOrAddressKeyResolver}"
+                # ~100 requests per 15 minutes was the Express limit; expressed per second with a
+                # burst so a page that fires several calls at once is not punished.
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 60
+                redis-rate-limiter.requestedTokens: 1
+
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                allowedOriginPatterns: ${CORS_ORIGINS:http://localhost:3001,http://localhost:5173}
+                allowedMethods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+                allowedHeaders: "*"
+                allowCredentials: true
+                maxAge: 3600
+
+          routes:
+            - id: user-service
+              uri: ${USER_SERVICE_URL:http://localhost:8086}
+              predicates:
+                - Path=/api/v1/auth/**,/api/v1/users/**
+
+            - id: flight-service
+              uri: ${FLIGHT_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/flights/**,/api/v1/cities/**,/api/v1/airports/**,/api/v1/airplanes/**
+
+            - id: booking-service
+              uri: ${BOOKING_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/v1/bookings/**,/api/v1/cluster/**
+
+            - id: payment-service
+              uri: ${PAYMENT_SERVICE_URL:http://localhost:8083}
+              predicates:
+                - Path=/api/v1/payments/**,/api/v1/customers/**
+
+            # Stripe signs the exact bytes it sends, so this route must not be rewritten or
+            # rate limited - a dropped webhook is a payment that never gets reconciled.
+            - id: payment-webhooks
+              uri: ${PAYMENT_SERVICE_URL:http://localhost:8083}
+              predicates:
+                - Path=/api/v1/webhooks/**
+              filters:
+                - name: RequestSize
+                  args:
+                    maxSize: 1MB
+
+            - id: notification-service
+              uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8084}
+              predicates:
+                - Path=/api/v1/notifications/**
+
+            - id: ai-service
+              uri: ${AI_SERVICE_URL:http://localhost:8085}
+              predicates:
+                - Path=/api/v1/ai/**
+              filters:
+                # Claude calls are slower than the rest of the platform.
+                - name: RequestRateLimiter
+                  args:
+                    key-resolver: "#{@userOrAddressKeyResolver}"
+                    redis-rate-limiter.replenishRate: 2
+                    redis-rate-limiter.burstCapacity: 6
+
+  codec:
+    max-in-memory-size: 1MB
+
+skyflow:
+  jwt:
+    secret: ${JWT_SECRET:change-me-change-me-change-me-32b}
+    issuer: skyflow
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,gateway
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    com.skyflow: ${LOG_LEVEL:INFO}

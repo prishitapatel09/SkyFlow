@@ -1,0 +1,53 @@
+server:
+  port: ${PORT:8085}
+  shutdown: graceful
+
+spring:
+  application:
+    name: ai-service
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+  # Claude calls take longer than a typical service call; the default 5s read timeout is not enough.
+  http:
+    client:
+      read-timeout: 120s
+      connect-timeout: 5s
+
+skyflow:
+  services:
+    flight: ${FLIGHT_SERVICE_URL:http://localhost:8081}
+    booking: ${BOOKING_SERVICE_URL:http://localhost:8082}
+
+  ai:
+    api-key: ${ANTHROPIC_API_KEY:}
+    model: ${CLAUDE_MODEL:claude-opus-5}
+    max-tokens: ${CLAUDE_MAX_TOKENS:8000}
+    chat-effort: ${CLAUDE_CHAT_EFFORT:medium}
+    extraction-effort: ${CLAUDE_EXTRACTION_EFFORT:low}
+    max-tool-iterations: 6
+    history-turns: 12
+    conversation-ttl: 2h
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  level:
+    com.skyflow: ${LOG_LEVEL:INFO}

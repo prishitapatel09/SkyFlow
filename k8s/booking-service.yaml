@@ -1,0 +1,203 @@
+# booking-service is the only stateful-looking workload here, and it is a StatefulSet for one
+# reason: the coordination cluster identifies a node by its advertised gRPC endpoint, so every
+# replica needs a stable, predictable DNS name. A Deployment's random pod names would change the
+# peer list on every restart.
+#
+# Pod DNS is booking-service-N.booking-service-peers.skyflow.svc.cluster.local, which is exactly
+# what CLUSTER_PEERS lists below. Scaling the replica count means updating that list and the
+# StatefulSet together - the trade-off of a static peer set, and the reason the election needs a
+# real quorum rather than a lock.
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking-service-peers
+  namespace: skyflow
+  labels:
+    app: booking-service
+spec:
+  # Headless: gives each pod its own DNS record instead of load balancing across them.
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: booking-service
+  ports:
+    - name: grpc
+      port: 9090
+      targetPort: grpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking-service
+  namespace: skyflow
+  labels:
+    app: booking-service
+spec:
+  type: ClusterIP
+  selector:
+    app: booking-service
+  ports:
+    - name: http
+      port: 8082
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: booking-service
+  namespace: skyflow
+  labels:
+    app: booking-service
+    app.kubernetes.io/part-of: skyflow
+spec:
+  serviceName: booking-service-peers
+  # An odd number, so a majority always exists: two of three can still elect a leader.
+  replicas: 3
+  revisionHistoryLimit: 3
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: booking-service
+  template:
+    metadata:
+      labels:
+        app: booking-service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8082"
+        prometheus.io/path: "/actuator/prometheus"
+    spec:
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      # Spreading replicas across nodes is the point of running three: co-located pods would all
+      # die with their node and take the quorum with them.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: booking-service
+      containers:
+        - name: booking-service
+          image: ${ECR_REGISTRY}/skyflow-booking-service:${IMAGE_TAG}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8082
+            - name: grpc
+              containerPort: 9090
+          env:
+            - name: PORT
+              value: "8082"
+            - name: SPRING_PROFILES_ACTIVE
+              value: "kubernetes"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # Resolves to this pod's own record on the headless service.
+            - name: CLUSTER_ADVERTISED_HOST
+              value: "$(POD_NAME).booking-service-peers"
+            - name: CLUSTER_GRPC_PORT
+              value: "9090"
+            - name: CLUSTER_ENABLED
+              value: "true"
+            - name: CLUSTER_PEERS
+              value: >-
+                booking-service-0.booking-service-peers:9090,
+                booking-service-1.booking-service-peers:9090,
+                booking-service-2.booking-service-peers:9090
+            - name: CLUSTER_WORKER_CAPACITY
+              value: "4"
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: LOG_LEVEL }
+            - name: DB_URL
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: db-url }
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: db-user }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: db-password }
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: redis-host }
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: redis-password }
+            - name: RABBITMQ_HOST
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: rabbitmq-host }
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: rabbitmq-user }
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: skyflow-secrets, key: rabbitmq-password }
+            - name: FLIGHT_SERVICE_URL
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: FLIGHT_SERVICE_URL }
+            - name: PAYMENT_SERVICE_URL
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: PAYMENT_SERVICE_URL }
+            - name: BOOKING_HOLD_DURATION
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: BOOKING_HOLD_DURATION }
+            - name: BOOKING_HOLD_SWEEP_INTERVAL
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: BOOKING_HOLD_SWEEP_INTERVAL }
+            - name: BOOKING_REMINDER_SWEEP_INTERVAL
+              valueFrom:
+                configMapKeyRef: { name: skyflow-config, key: BOOKING_REMINDER_SWEEP_INTERVAL }
+          resources:
+            requests:
+              cpu: "400m"
+              memory: "768Mi"
+            limits:
+              memory: "1Gi"
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      imagePullSecrets:
+        - name: ecr-secret
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: booking-service
+  namespace: skyflow
+spec:
+  # Two of three must stay up during a drain, or the cluster loses quorum mid-eviction.
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: booking-service

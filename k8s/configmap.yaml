@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: skyflow-config
+  namespace: skyflow
+data:
+  # In-cluster service DNS; no discovery client needed.
+  USER_SERVICE_URL: "http://user-service:8086"
+  FLIGHT_SERVICE_URL: "http://flight-service:8081"
+  BOOKING_SERVICE_URL: "http://booking-service:8082"
+  PAYMENT_SERVICE_URL: "http://payment-service:8083"
+  NOTIFICATION_SERVICE_URL: "http://notification-service:8084"
+  AI_SERVICE_URL: "http://ai-service:8085"
+
+  CORS_ORIGINS: "https://skyflow.example.com"
+  LOG_LEVEL: "INFO"
+
+  CLAUDE_MODEL: "claude-opus-5"
+  CLAUDE_CHAT_EFFORT: "medium"
+  CLAUDE_EXTRACTION_EFFORT: "low"
+
+  STRIPE_CURRENCY: "usd"
+
+  EMAIL_ENABLED: "true"
+  EMAIL_FROM: "noreply@skyflow.example.com"
+  MAIL_HOST: "email-smtp.us-east-1.amazonaws.com"
+  MAIL_PORT: "587"
+
+  BOOKING_HOLD_DURATION: "15m"
+  BOOKING_HOLD_SWEEP_INTERVAL: "60s"
+  BOOKING_REMINDER_SWEEP_INTERVAL: "15m"

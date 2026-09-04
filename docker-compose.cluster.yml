@@ -1,0 +1,88 @@
+# Three-replica booking service, so the leader election and task failover are actually visible
+# locally:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build
+#
+#   # who is master?
+#   curl -s localhost:8082/api/v1/cluster/status | jq '{nodeId,role,term,leaderId}'
+#
+#   # kill it and watch a new term start on the survivors
+#   docker compose stop booking-service
+#   curl -s localhost:8092/api/v1/cluster/status | jq '{nodeId,role,term,leaderId}'
+#
+# Compose gives each service a stable DNS name, which is what the peer list needs. In Kubernetes
+# the same job is done by a StatefulSet behind a headless service.
+
+x-booking-cluster: &booking-cluster
+  CLUSTER_ENABLED: "true"
+  CLUSTER_GRPC_PORT: "9090"
+  # Every replica, this one included. Self is filtered out at startup.
+  CLUSTER_PEERS: booking-service:9090,booking-service-2:9090,booking-service-3:9090
+
+services:
+  booking-service:
+    environment:
+      <<: *booking-cluster
+      CLUSTER_ADVERTISED_HOST: booking-service
+    ports:
+      - "8082:8082"
+
+  booking-service-2:
+    build:
+      context: .
+      args:
+        MODULE: booking-service
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/skyflow
+      DB_USER: postgres
+      DB_PASSWORD: password
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-me-32}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PORT: "8082"
+      FLIGHT_SERVICE_URL: http://flight-service:8081
+      PAYMENT_SERVICE_URL: http://payment-service:8083
+      <<: *booking-cluster
+      CLUSTER_ADVERTISED_HOST: booking-service-2
+    ports:
+      - "8092:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  booking-service-3:
+    build:
+      context: .
+      args:
+        MODULE: booking-service
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/skyflow
+      DB_USER: postgres
+      DB_PASSWORD: password
+      REDIS_HOST: redis
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      JWT_SECRET: ${JWT_SECRET:-local-development-secret-change-me-32}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PORT: "8082"
+      FLIGHT_SERVICE_URL: http://flight-service:8081
+      PAYMENT_SERVICE_URL: http://payment-service:8083
+      <<: *booking-cluster
+      CLUSTER_ADVERTISED_HOST: booking-service-3
+    ports:
+      - "8093:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
