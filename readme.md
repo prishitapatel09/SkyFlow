@@ -1,4 +1,12 @@
-# SkyFlow
+# SkyFlow — Flight Booking Platform
+
+### 🚀 Live demo: **https://sky-flow-using-go-nsn8.vercel.app/**
+
+> ⚠️ **Note to recruiters and reviewers**
+>
+> To keep this project free to host, the backend runs with replicas set to `0` (scale-to-zero).
+> **The first API request may take 2–3 minutes** to wake the container. Once it is up, subsequent
+> requests are fast and responsive. Thank you for your patience.
 
 Airline booking platform built as Java Spring Boot microservices with a React front end.
 
@@ -11,24 +19,13 @@ support assistant are backed by Claude.
 · React 19 · TypeScript · Vite · Kubernetes · Terraform · Prometheus/Grafana · Stripe · Anthropic
 Claude
 
-## 🚀 Live demo
-
-**https://sky-flow-using-go-nsn8.vercel.app/**
-
-> ⚠️ **Note to recruiters and reviewers**
->
-> To keep this project free to host, the backend runs with replicas set to `0` (scale-to-zero).
-> **The first API request may take 2–3 minutes** to wake the container. Once it is up, subsequent
-> requests are fast and responsive. Thank you for your patience.
->
-> To run the platform on your own machine instead — all seven services, seeded, no API keys
-> needed — see [Running it locally](#running-it-locally).
+Want to run it yourself? [`./start-dev.sh`](#running-it-locally) brings up all seven services,
+seeded, with no API keys required.
 
 ---
 
 ## Contents
 
-- [Live demo](#-live-demo)
 - [Architecture](#architecture)
 - [Running it locally](#running-it-locally)
 - [The parts worth reading](#the-parts-worth-reading)
@@ -164,7 +161,7 @@ existing key, and `" BOS "` and `"bos"` hit the same entry.
 
 Writes evict precisely: reserving a seat drops that flight, its inventory entry, and the whole
 search cache — the last one because there is no way to know which cached result sets contained that
-flight. `FlightSearchCacheHitRatioLow` in [`monitoring/rules`](monitoring/rules/skyflow.yml) fires
+flight. `FlightSearchCacheHitRatioLow` in [`infra/monitoring/rules`](infra/monitoring/rules/skyflow.yml) fires
 if the hit ratio falls below 50%, since a collapsed ratio means Postgres is quietly serving the hot
 path again.
 
@@ -203,8 +200,8 @@ Work is recovered three ways, and together these are the automatic failover:
 
 Under Kubernetes the replicas are a **StatefulSet behind a headless service**, because a node's
 identity *is* its advertised gRPC endpoint and the peer list must be stable across restarts. See
-[`k8s/booking-service.yaml`](k8s/booking-service.yaml), and the `NetworkPolicy` in
-[`k8s/networkpolicy.yaml`](k8s/networkpolicy.yaml) that restricts port 9090 to sibling pods.
+[`infra/k8s/booking-service.yaml`](infra/k8s/booking-service.yaml), and the `NetworkPolicy` in
+[`infra/k8s/networkpolicy.yaml`](infra/k8s/networkpolicy.yaml) that restricts port 9090 to sibling pods.
 
 Watch it happen:
 
@@ -388,12 +385,12 @@ The suites concentrate on the logic that is easy to get wrong:
 export AWS_REGION=us-east-1 ECR_REGISTRY=<account>.dkr.ecr.us-east-1.amazonaws.com
 export DB_URL=... DB_USER=... DB_PASSWORD=... REDIS_HOST=... RABBITMQ_HOST=... JWT_SECRET=...
 
-cd terraform && terraform init && terraform apply    # VPC, EKS, RDS, ElastiCache, Amazon MQ, ECR
+cd infra/terraform && terraform init && terraform apply    # VPC, EKS, RDS, ElastiCache, Amazon MQ, ECR
 cd .. && ./deploy.sh deploy                          # build, push, apply, wait for rollout
 ./deploy.sh cluster                                  # which replica is master?
 ```
 
-`deploy.sh` renders `k8s/secrets.yaml` into a temp directory it deletes on exit, so secret values
+`deploy.sh` renders `infra/k8s/secrets.yaml` into a temp directory it deletes on exit, so secret values
 never touch the working tree. Images are tagged with the short commit SHA.
 
 > The Terraform in this repo declares modules (`eks`, `rds`, `redis`, `mq`, `alb`, …) that were
@@ -467,9 +464,10 @@ services/
   notification-service/  RabbitMQ consumer, email templates
   ai-service/            Claude integration
 frontend/                React 19 + TypeScript + Vite
-k8s/                     Namespace, config, per-service manifests, network policies, ingress
-monitoring/              Prometheus scrape config, alert rules, Grafana dashboard
-terraform/               AWS infrastructure
+infra/
+  k8s/                   Namespace, config, per-service manifests, network policies, ingress
+  monitoring/            Prometheus scrape config, alert rules, Grafana dashboard
+  terraform/             AWS infrastructure
 deploy.sh                Build, push, apply, roll back
 start-dev.sh             Local development
 ```

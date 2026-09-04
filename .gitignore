@@ -19,20 +19,20 @@ npm-debug.log*
 .env.*.local
 *.pem
 *.key
-!terraform/**/*.key
+!infra/terraform/**/*.key
 
 # Terraform
 .terraform/
 *.tfstate
 *.tfstate.*
 *.tfvars
-!terraform/terraform.tfvars.example
+!infra/terraform/terraform.tfvars.example
 .terraform.lock.hcl
 crash.log
 
 # Rendered Kubernetes manifests contain secrets; deploy.sh writes them to a temp dir, but catch
 # any that end up here by hand.
-k8s/rendered/
+infra/k8s/rendered/
 
 # IDE and OS
 .idea/

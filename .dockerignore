@@ -5,9 +5,7 @@
 frontend
 .git
 .github
-k8s
-terraform
-monitoring
+infra
 logs
 *.log
 .DS_Store

@@ -171,7 +171,7 @@ render_manifests() {
   export ECR_REGISTRY IMAGE_TAG ACM_CERTIFICATE_ARN="${ACM_CERTIFICATE_ARN:-}"
 
   for manifest in "${MANIFESTS[@]}"; do
-    envsubst < "k8s/${manifest}" > "${out_dir}/${manifest}"
+    envsubst < "infra/k8s/${manifest}" > "${out_dir}/${manifest}"
   done
 
   [[ -n "${STRIPE_WEBHOOK_SECRET:-}" ]] \
