@@ -8,10 +8,22 @@
 #   ./start-dev.sh build        build the Java modules and the frontend
 #   ./start-dev.sh test         run every test suite
 #   ./start-dev.sh logs [svc]   tail logs
+#   ./start-dev.sh stop-leader  stop replica 1 to force a leader election
 #   ./start-dev.sh stop         stop everything
 #   ./start-dev.sh reset        stop and delete the volumes
 
 set -euo pipefail
+
+# Compose files live under infra/docker/, so every invocation pins the project directory back to
+# the repository root; otherwise relative build contexts and volume mounts resolve inside
+# infra/docker/ and nothing is found.
+readonly COMPOSE=(docker compose
+  -f infra/docker/docker-compose.yml
+  --project-directory .)
+readonly COMPOSE_CLUSTER=(docker compose
+  -f infra/docker/docker-compose.yml
+  -f infra/docker/docker-compose.cluster.yml
+  --project-directory .)
 
 readonly GREEN='\033[0;32m' BLUE='\033[0;34m' YELLOW='\033[1;33m' NC='\033[0m'
 info()    { echo -e "${BLUE}[info]${NC}  $*"; }
@@ -69,7 +81,7 @@ case "${1:-up}" in
   up)
     ensure_env_file
     info "Starting the full stack (first build takes a few minutes)"
-    docker compose up --build -d
+    "${COMPOSE[@]}" up --build -d
     success "Stack is up"
     print_urls
     ;;
@@ -77,7 +89,7 @@ case "${1:-up}" in
   cluster)
     ensure_env_file
     info "Starting with three booking-service replicas"
-    docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build -d
+    "${COMPOSE_CLUSTER[@]}" up --build -d
     success "Stack is up"
     cat <<'EOF'
 
@@ -96,7 +108,7 @@ EOF
   infra)
     ensure_env_file
     info "Starting Postgres, Redis and RabbitMQ only"
-    docker compose up -d postgres redis rabbitmq
+    "${COMPOSE[@]}" up -d postgres redis rabbitmq
     success "Infrastructure is up; run the services from your IDE against localhost"
     ;;
 
@@ -116,13 +128,23 @@ EOF
     success "All tests passed"
     ;;
 
+  stop-leader)
+    # Kills the first booking replica so a new leader has to be elected. Which replica actually
+    # holds the master role is whatever /api/v1/cluster/status reports.
+    info "Stopping booking-service (replica 1) to force an election"
+    "${COMPOSE_CLUSTER[@]}" stop booking-service
+    success "Stopped. Check the survivors:"
+    echo "    curl -s localhost:8092/api/v1/cluster/status | jq '{nodeId,role,term,leaderId}'"
+    echo "    curl -s localhost:8093/api/v1/cluster/status | jq '{nodeId,role,term,leaderId}'"
+    ;;
+
   logs)
     shift || true
-    docker compose logs -f --tail=100 "$@"
+    "${COMPOSE_CLUSTER[@]}" logs -f --tail=100 "$@"
     ;;
 
   stop)
-    docker compose -f docker-compose.yml -f docker-compose.cluster.yml down
+    "${COMPOSE_CLUSTER[@]}" down
     success "Stopped"
     ;;
 
@@ -130,7 +152,7 @@ EOF
     warn "This deletes the Postgres, Redis and RabbitMQ volumes"
     read -r -p "Continue? [y/N] " reply
     if [[ "$reply" == "y" || "$reply" == "Y" ]]; then
-      docker compose -f docker-compose.yml -f docker-compose.cluster.yml down -v
+      "${COMPOSE_CLUSTER[@]}" down -v
       success "Reset complete"
     else
       info "Cancelled"
@@ -138,6 +160,6 @@ EOF
     ;;
 
   *)
-    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
     ;;
 esac

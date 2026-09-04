@@ -1,13 +1,13 @@
 # Three-replica booking service, so the leader election and task failover are actually visible
 # locally:
 #
-#   docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build
+#   ./start-dev.sh cluster
 #
 #   # who is master?
 #   curl -s localhost:8082/api/v1/cluster/status | jq '{nodeId,role,term,leaderId}'
 #
 #   # kill it and watch a new term start on the survivors
-#   docker compose stop booking-service
+#   ./start-dev.sh stop-leader        # or: docker compose ... stop booking-service
 #   curl -s localhost:8092/api/v1/cluster/status | jq '{nodeId,role,term,leaderId}'
 #
 # Compose gives each service a stable DNS name, which is what the peer list needs. In Kubernetes
@@ -30,6 +30,7 @@ services:
   booking-service-2:
     build:
       context: .
+      dockerfile: infra/docker/Dockerfile
       args:
         MODULE: booking-service
     environment:
@@ -60,6 +61,7 @@ services:
   booking-service-3:
     build:
       context: .
+      dockerfile: infra/docker/Dockerfile
       args:
         MODULE: booking-service
     environment:

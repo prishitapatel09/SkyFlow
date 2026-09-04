@@ -1,6 +1,13 @@
 # Full stack for local development.
 #
-#   docker compose up --build
+#   ./start-dev.sh
+#
+# or directly, from the repository root:
+#
+#   docker compose -f infra/docker/docker-compose.yml --project-directory . up --build
+#
+# --project-directory pins relative paths to the repository root, so the build contexts and the
+# monitoring mounts below stay root-relative even though this file does not live there.
 #
 # Frontend  http://localhost:3001   (nginx, proxies /api to the gateway)
 # Gateway   http://localhost:8080
@@ -10,7 +17,7 @@
 # The booking service runs as a single-replica cluster here. To watch the leader election and
 # task failover, add the three-replica override:
 #
-#   docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build
+#   ./start-dev.sh cluster
 
 x-java-env: &java-env
   DB_URL: jdbc:postgresql://postgres:5432/skyflow
@@ -101,6 +108,7 @@ services:
   api-gateway:
     build:
       context: .
+      dockerfile: infra/docker/Dockerfile
       args:
         MODULE: api-gateway
     environment:
@@ -117,6 +125,7 @@ services:
   user-service:
     build:
       context: .
+      dockerfile: infra/docker/Dockerfile
       args:
         MODULE: user-service
     environment:
@@ -128,6 +137,7 @@ services:
   flight-service:
     build:
       context: .
+      dockerfile: infra/docker/Dockerfile
       args:
         MODULE: flight-service
     environment:
@@ -139,6 +149,7 @@ services:
   booking-service:
     build:
       context: .
+      dockerfile: infra/docker/Dockerfile
       args:
         MODULE: booking-service
     environment:
@@ -155,6 +166,7 @@ services:
   payment-service:
     build:
       context: .
+      dockerfile: infra/docker/Dockerfile
       args:
         MODULE: payment-service
     environment:
@@ -171,6 +183,7 @@ services:
   notification-service:
     build:
       context: .
+      dockerfile: infra/docker/Dockerfile
       args:
         MODULE: notification-service
     environment:
@@ -189,6 +202,7 @@ services:
   ai-service:
     build:
       context: .
+      dockerfile: infra/docker/Dockerfile
       args:
         MODULE: ai-service
     environment:

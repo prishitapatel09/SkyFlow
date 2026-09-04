@@ -83,7 +83,10 @@ build_images() {
 
   for module in "${JAVA_MODULES[@]}"; do
     info "Building skyflow-${module}:${IMAGE_TAG}"
+    # Context is the repository root - the services share the common and cluster-core modules -
+    # while the Dockerfile itself lives under infra/docker/.
     docker build \
+      -f infra/docker/Dockerfile \
       --build-arg "MODULE=${module}" \
       -t "${registry_prefix}skyflow-${module}:${IMAGE_TAG}" \
       -t "${registry_prefix}skyflow-${module}:latest" \

@@ -209,7 +209,7 @@ Watch it happen:
 ./start-dev.sh cluster
 
 curl -s localhost:8082/api/v1/cluster/status | jq '{nodeId,role,term,leaderId}'
-docker compose stop booking-service          # kill the leader
+./start-dev.sh stop-leader                   # kill the leader
 curl -s localhost:8092/api/v1/cluster/status | jq '{nodeId,role,term,leaderId}'
 ```
 
@@ -450,9 +450,6 @@ matters.
 ```
 pom.xml                  Maven reactor: 2 libraries + 7 services
 mvnw                     Maven wrapper (script-only; downloads Maven on first use)
-Dockerfile               One image build for every Java service (--build-arg MODULE=…)
-docker-compose.yml       Full local stack
-docker-compose.cluster.yml   Adds two more booking-service replicas
 services/
   common/                Response envelope, errors, events, cache and JWT config
   cluster-core/          cluster.proto, Raft election, master–worker distribution
@@ -465,6 +462,7 @@ services/
   ai-service/            Claude integration
 frontend/                React 19 + TypeScript + Vite
 infra/
+  docker/                Dockerfile for every Java service, plus the two compose files
   k8s/                   Namespace, config, per-service manifests, network policies, ingress
   monitoring/            Prometheus scrape config, alert rules, Grafana dashboard
   terraform/             AWS infrastructure
